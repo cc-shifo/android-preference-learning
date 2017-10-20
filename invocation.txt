@@ -1,0 +1,173 @@
+原始链接
+https://github.com/LinLshare/StickyRecyclerSettingView
+https://github.com/jenzz/Android-MaterialPreference
+https://github.com/codevscolor/MaterialPreference
+
+二、设置MaterialPreference数据流程
+官方有关设置介绍
+https://developer.android.com/guide/topics/ui/settings.html#Activity
+首先，要在Activity中显示我们的"设置"(如这里的settingspreference.xml)，可以扩展
+PreferenceActivity类(低于android3.0时)或者PreferenceFragment(等于或高于android3.0时)。
+如何在活动中显示首选项参考以上链接中的"创建首选项Activity"。对于本工程而言，
+第一步，建立PreferenceFragment；
+第二步，建立加载PreferenceFragment的activity。流程如下：
+2.MainActivity-->MaterialPreferenceActivity
+		-->MaterialMainActivity-->replace(R.id.materialpref_bodylayout, 
+						new MaterialPreferenceFragment()
+						完成了向活动中添加PreferenceFragment
+1.MaterialPreferenceFragment继承了PreferenceFragmentCompat，调用
+了addPreferencesFromResource()完成了对settingspreference.xml的显示。
+
+其次，本工程有一个自定义的首选项(Preference)，它就是颜色选择器首选项ColorChooserPreference，
+他可以控制首选项分组(即MaterialPreferenceCategory分组，它也是一个自定义Category)的标题的
+颜色。
+ColorChooserPreference-->setWidgetLayoutResource设置preference本身的布局。这个布局将
+在settingspreference.xml中显示。自定义的首选项重载了onClick，使得点击这个自定义首选项后
+弹出一个AlterDialog，AlterDialog里填充的是一个GridView网格布局视图(联想下ListView，
+接下里GridView的工作就是获取数据，创建ArrayAdapter，获得GridView并向这个视图中设置前面
+所创建的适配器)
+
+
+
+三、pinned设置或者叫做Sticky。就是在系统标题栏下面的那一栏，显示的是listView的某一个标题。
+settingActivity()#行51-->Util.parseSettings(getResources(), R.xml.settings)
+			-->Uiti.java#行77
+				-->settingItemBuilder = 
+				new SettingItem.Builder(id, mainTxt, true)
+				设置初始化Builder的值isHeader，表示是头
+			-->Uiti.java#行100
+				-->settingItemList.add(settingItemBuilder.build())
+					-->SettingItem.java#行24
+					new SettingItem(..., isHeader)
+					利用Builder的isHeader值设置SettingItem.java文件
+					的isHeader表示是否是头
+						-->SettingItem.java#行99
+						public void isHeader(boolean header)
+						利用SettingItem类的这个方法来判断是否是头
+HeaderAdapterDelegate#行17-->isForViewType()
+				-->items.get(position).isHeader()调用了SettingItem
+				的isHeader()
+AdapterDelegatesManager#行212-->getItemViewType()
+				-->#行212调用delegate.isForViewType(items, position)
+					返回delegates.keyAt(i)的值，其中
+					delegates = new SparseArrayCompat()，实际返回
+					就是SparseArrayCompat某一个item的索引i对应的键值。
+					那么i索引怎样确定的呢？
+					后边会介绍整个delegates列表就两个元素，索引
+					分别是0和1。
+BaseRecyclerAdapterWithDelegate#行64-->getItemViewType()
+					调用了adapterDelegatesManager
+					.getItemViewType(dataList, position);
+SettingRecyclerAdapter.java继承了BaseRecyclerAdapterWithDelegate
+				并且实现了PinnedHeaderItemDecoration.PinnedHeaderAdapter接口
+settingActivity()#行45-->new SettingRecyclerAdapter()
+
+PinnedHeaderItemDecoration#行75的createPinnedHeader()-->mAdapter
+							.getItemViewType(headerPosition)
+							-->#行166
+							adapter instanceof 
+							PinnedHeaderAdapter
+							mAdapter = adapter
+							实则调用了
+							BaseRecyclerAdapterWithDelegate类的
+							getItemViewType()，传入值是item的位
+							置。
+PinnedHeaderItemDecoration#行40-->createPinnedHeader()
+					-->#行48调用了isHeaderView()
+						-->#行156调用了mAdapter.
+						getItemViewType(position)
+						#157调用了isPinnedViewType()设置并获得
+						是否是头视图。实际上就是根据List初始化时
+						item的postion建立一个Map键值对。
+						isPinnedViewType设置
+						Map<Integer, Boolean> mPinnedViewTypes = 
+							new HashMap<>()
+						的Integer就是getItemViewType的返回值，
+						isPinnedViewType方法由
+						SettingRecyclerAdapter.java类实现。
+						那么疑问是，delegates = 
+						new SparseArrayCompat()中的item何时
+						加入的？
+
+答：最终通过delegates.put(viewType, delegate)加入
+AdapterDelegatesManager#行140 addDelegate(arg1, arg2, arg3)
+				-->delegates.put(viewType, delegate)
+AdapterDelegatesManager#行89 addDelegate(@NonNull AdapterDelegate<T> delegate)
+				-->viewType = delegates.size();
+				addDelegate(viewType, false, delegate)
+				viewType就是SparseArrayCompat列表大小。
+BaseRecyclerAdapterWithDelegate#行23 
+			addDelegate()-->adapterDelegatesManager.addDelegate(delegate);
+SettingRecyclerAdapter#行15 
+		SettingRecyclerAdapter()-->
+			HeaderAdapterDelegate headerAdapterDelegate = 
+				new HeaderAdapterDelegate();
+			NormalAdapterDelegate normalAdapterDelegate = 
+				new NormalAdapterDelegate();
+			addDelegate(headerAdapterDelegate);
+			addDelegate(normalAdapterDelegate);
+			完成了delegate的调用。因此，所有
+			delegates列表就两个元素。一个是Header一个是Normal, ViewType
+			分别是0和1。
+			到此，证明了
+			AdapterDelegatesManager#行212-->getItemViewType()
+			返回的是delegates.keyAt(0)和delegates.keyAt(1)对应的Object的key值。
+			SparseArrayCompat<AdapterDelegate<T>> delegates = 
+				new SparseArrayCompat();
+			Map<Integer, Boolean> mPinnedViewTypes = new HashMap<>();
+			(注，Integer是key, Boolean是Object)
+
+BaseRecyclerAdapterWithDelegate# 行19
+AdapterDelegatesManager<List<T>> adapterDelegatesManager = new AdapterDelegatesManager<>();
+SettingRecyclerAdapter extends BaseRecyclerAdapterWithDelegate<SettingItem>
+所以，AdapterDelegatesManager<>的元素都是List<SettingItem>。
+SparseArrayCompat<AdapterDelegate<T>>中的泛型T就是List<SettingItem>类型，
+所以SparseArrayCompat<AdapterDelegate<T>> delegates = new SparseArrayCompat()中的item是
+AdapterDelegate<List<SettingItem>>类型，其中AdapterDelegate类的泛型类型是List<SettingItem>，
+delegates列表中每一个元素都是AdapterDelegate对象，而HeaderAdapterDelegate
+和NormalAdapterDelegate是AdapterDelegate<List<SettingItem>>的子类。
+delegates.keyAt(0)和delegates.keyAt(1)返回的分别是HeaderAdapterDelegate和
+NormalAdapterDelegate这两个Object所对应的key，也就是Map<Integer, Boolean> mPinnedViewTypes
+中的Integer。
+请看AdapterDelegatesManager#行140 addDelegate(arg1, arg2, arg3)
+				-->delegates.put(viewType, delegate)，viewType是key, delegate
+是Object,所以delegates.keyAt(0)和delegates.keyAt(1)返回的就是他们的viewType，也就是
+delegates列表的索引。
+
+
+BaseRecyclerAdapterWithDelegate继承了RecyclerView.Adapter
+		-->重载了onCreateViewHolder，onBindViewHolder，getItemViewType，getItemCount
+		RecyclerView.ViewHolder的getItemViewType返回类型就是我们重载。我们重载的
+		getItemViewType的返回值是HeaderAdapterDelegate或NormalAdapterDelegate的索引。
+		。
+AdapterDelegatesManager# 行273-->onBindViewHolder()
+				-->AdapterDelegate<T> delegate = 
+					getDelegateForViewType(viewHolder.getItemViewType())
+					因此viewHolder.getItemViewType()返回的也是当前
+					delegate的索引。
+AdapterDelegatesManager# 行421-->getDelegateForViewType()
+					根据索引返回delegates = new SparseArrayCompat()
+					的HeaderAdapterDelegate或NormalAdapterDelegate。
+
+2.确定像大于号“>”的图片在哪里被添加
+ic_next_gray_24dp.xml就是大于号图片，点xml文件右边栏的Preview可以预览图片效果。
+图片被添加进了list_item_setting_normal.xml中。这个list_item_setting_normal.xml
+也就是recycler列表中item视图。
+其中NormalAdapterDelegate.java# 行29 convert()函数就是选择是否显示item中的某一个控件。
+
+3.确定item的点击事件
+1)NormalAdapterDelegate.java# 行61实现的。holder.itemView.setOnClickListener()
+SettingRecyclerAdapter.java#行20~28实现了
+HeaderAdapterDelegate.setOnHeaderItemClickListener和
+NormalAdapterDelegate.OnNormalItemClickListener接口，并且在接口方法onItemClick中
+调用onItemClickListener.onItemClick()
+2)SettingActivity.java#行 55实现SettingRecyclerAdapter.OnItemClickListener接口
+SettingActivity.java#行 49调用settingRecyclerAdapter.setOnItemClickListener(this)
+设置SettingRecyclerAdapter的OnItemClickListener onItemClickListener接口。
+3)所以1)中最中调用的是SettingActivity.java类实现的OnItemClickListener的方法onItemClick()，
+如果onItemClick()点击的item是+id/name的话，就会更新第二文本。其中+id/name这个item就是
+settings.xml中的
+<item
+    android:id="@+id/name"
+    name="Name"
+    secondaryTxt="Lshare"/>
